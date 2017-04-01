@@ -1484,7 +1484,7 @@ inline void LibxsmmSparseMatMul<TL, TR>::Compute(
       if (work_item >= total_num_creation_blocks) break;
       wrapper_libxsmm_spmdm_createSparseSlice_generic_thread(
           empty_type_wrapper<TL>{}, &entry->handle,
-          (transpose_left ? 'Y' : 'N'), left_data, entry->output_csr, work_item,
+          (transpose_left ? 'T' : 'N'), left_data, entry->output_csr, work_item,
           i, num_threads);
     }
   });
@@ -1506,8 +1506,8 @@ inline void LibxsmmSparseMatMul<TL, TR>::Compute(
       const TL beta(0.0);   // Stored in a variable so we can get a pointer
       wrapper_libxsmm_spmdm_compute_generic_thread(
           empty_type_wrapper<TL>{}, &entry->handle,
-          (transpose_left ? 'Y' : 'N'), 'N', &alpha, entry->output_csr,
-          right_data, (transpose_output ? 'Y' : 'N'), &beta, output_data,
+          (transpose_left ? 'T' : 'N'), 'N', &alpha, entry->output_csr,
+          right_data, (transpose_output ? 'T' : 'N'), &beta, output_data,
           work_item, i, num_threads);
     }
   });

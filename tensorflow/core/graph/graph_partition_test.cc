@@ -24,7 +24,6 @@ limitations under the License.
 #include "tensorflow/cc/ops/random_ops.h"
 #include "tensorflow/cc/ops/sendrecv_ops.h"
 #include "tensorflow/core/framework/op.h"
-#include "tensorflow/core/graph/equal_graph_def.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/graph_constructor.h"
 #include "tensorflow/core/graph/graph_def_builder.h"
@@ -34,6 +33,7 @@ limitations under the License.
 #include "tensorflow/core/platform/protobuf.h"
 #include "tensorflow/core/platform/test.h"
 #include "tensorflow/core/public/version.h"
+#include "tensorflow/core/util/equal_graph_def.h"
 
 namespace tensorflow {
 namespace {
@@ -170,20 +170,20 @@ class GraphPartitionTest : public ::testing::Test {
             "/job:a/replica:0/task:0/cpu:1")) {}
 
   const GraphDef& ToGraphDef() {
-    in_.ToGraphDef(&in_graph_def_);
+    TF_EXPECT_OK(in_.ToGraphDef(&in_graph_def_));
     return in_graph_def_;
   }
 
   void ExpectMatchA() {
     GraphDef graph_def;
-    scope_a_.ToGraphDef(&graph_def);
+    TF_EXPECT_OK(scope_a_.ToGraphDef(&graph_def));
     string a = "/job:a/replica:0/task:0/cpu:0";
     TF_EXPECT_GRAPH_EQ(graph_def, partitions_[a]);
   }
 
   void ExpectMatchB() {
     GraphDef graph_def;
-    scope_b_.ToGraphDef(&graph_def);
+    TF_EXPECT_OK(scope_b_.ToGraphDef(&graph_def));
     string b = "/job:a/replica:0/task:0/cpu:1";
     TF_EXPECT_GRAPH_EQ(graph_def, partitions_[b]);
   }

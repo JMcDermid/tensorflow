@@ -46,6 +46,7 @@ import sys
 import tensorflow as tf
 
 from tensorflow.python.lib.io import file_io
+from tensorflow.python.saved_model import main_op
 
 FLAGS = None
 
@@ -72,13 +73,11 @@ def _write_assets(assets_directory, assets_filename):
 
 def _build_regression_signature(input_tensor, output_tensor):
   """Helper function for building a regression SignatureDef."""
-  input_tensor_info = tf.TensorInfo()
-  input_tensor_info.name = input_tensor.name
+  input_tensor_info = tf.saved_model.utils.build_tensor_info(input_tensor)
   signature_inputs = {
       tf.saved_model.signature_constants.REGRESS_INPUTS: input_tensor_info
   }
-  output_tensor_info = tf.TensorInfo()
-  output_tensor_info.name = tf.identity(output_tensor).name
+  output_tensor_info = tf.saved_model.utils.build_tensor_info(output_tensor)
   signature_outputs = {
       tf.saved_model.signature_constants.REGRESS_OUTPUTS: output_tensor_info
   }
@@ -91,13 +90,11 @@ def _build_regression_signature(input_tensor, output_tensor):
 # sufficient for testing purposes.
 def _build_classification_signature(input_tensor, scores_tensor):
   """Helper function for building a classification SignatureDef."""
-  input_tensor_info = tf.TensorInfo()
-  input_tensor_info.name = input_tensor.name
+  input_tensor_info = tf.saved_model.utils.build_tensor_info(input_tensor)
   signature_inputs = {
       tf.saved_model.signature_constants.CLASSIFY_INPUTS: input_tensor_info
   }
-  output_tensor_info = tf.TensorInfo()
-  output_tensor_info.name = tf.identity(scores_tensor).name
+  output_tensor_info = tf.saved_model.utils.build_tensor_info(scores_tensor)
   signature_outputs = {
       tf.saved_model.signature_constants.CLASSIFY_OUTPUT_SCORES:
           output_tensor_info
@@ -107,12 +104,15 @@ def _build_classification_signature(input_tensor, scores_tensor):
       tf.saved_model.signature_constants.CLASSIFY_METHOD_NAME)
 
 
-def _generate_saved_model_for_half_plus_two(export_dir, as_text=False):
+def _generate_saved_model_for_half_plus_two(export_dir,
+                                            as_text=False,
+                                            use_main_op=False):
   """Generates SavedModel for half plus two.
 
   Args:
     export_dir: The directory to which the SavedModel should be written.
     as_text: Writes the SavedModel protocol buffer in text format to disk.
+    use_main_op: Whether to supply a main op during SavedModel build time.
   """
   builder = tf.saved_model.builder.SavedModelBuilder(export_dir)
 
@@ -162,37 +162,56 @@ def _generate_saved_model_for_half_plus_two(export_dir, as_text=False):
 
     # Set up the signature for Predict with input and output tensor
     # specification.
-    predict_input_tensor = tf.TensorInfo()
-    predict_input_tensor.name = x.name
+    predict_input_tensor = tf.saved_model.utils.build_tensor_info(x)
     predict_signature_inputs = {"x": predict_input_tensor}
 
-    predict_output_tensor = tf.TensorInfo()
-    predict_output_tensor.name = y.name
+    predict_output_tensor = tf.saved_model.utils.build_tensor_info(y)
     predict_signature_outputs = {"y": predict_output_tensor}
     predict_signature_def = (
         tf.saved_model.signature_def_utils.build_signature_def(
             predict_signature_inputs, predict_signature_outputs,
             tf.saved_model.signature_constants.PREDICT_METHOD_NAME))
 
+    signature_def_map = {
+        "regress_x_to_y":
+            _build_regression_signature(serialized_tf_example, y),
+        "regress_x_to_y2":
+            _build_regression_signature(serialized_tf_example, y2),
+        "regress_x2_to_y3":
+            _build_regression_signature(x2, y3),
+        "classify_x_to_y":
+            _build_classification_signature(serialized_tf_example, y),
+        tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+            predict_signature_def
+    }
     # Initialize all variables and then save the SavedModel.
     sess.run(tf.global_variables_initializer())
-    builder.add_meta_graph_and_variables(
-        sess, [tf.saved_model.tag_constants.SERVING],
-        signature_def_map={
-            "regress_x_to_y":
-                _build_regression_signature(serialized_tf_example, y),
-            "regress_x_to_y2":
-                _build_regression_signature(serialized_tf_example, y2),
-            "regress_x2_to_y3":
-                _build_regression_signature(x2, y3),
-            "classify_x_to_y":
-                _build_classification_signature(serialized_tf_example, y),
-            tf.saved_model.signature_constants.
-            DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                predict_signature_def
-        },
-        assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
-        legacy_init_op=tf.group(assign_filename_op))
+    signature_def_map = {
+        "regress_x_to_y":
+            _build_regression_signature(serialized_tf_example, y),
+        "regress_x_to_y2":
+            _build_regression_signature(serialized_tf_example, y2),
+        "regress_x2_to_y3":
+            _build_regression_signature(x2, y3),
+        "classify_x_to_y":
+            _build_classification_signature(serialized_tf_example, y),
+        "classify_x2_to_y3":
+            _build_classification_signature(x2, y3),
+        tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+            predict_signature_def
+    }
+    if use_main_op:
+      builder.add_meta_graph_and_variables(
+          sess, [tf.saved_model.tag_constants.SERVING],
+          signature_def_map=signature_def_map,
+          assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
+          main_op=tf.group(main_op.main_op(), assign_filename_op))
+    else:
+      builder.add_meta_graph_and_variables(
+          sess, [tf.saved_model.tag_constants.SERVING],
+          signature_def_map=signature_def_map,
+          assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
+          legacy_init_op=tf.group(assign_filename_op))
     builder.save(as_text)
 
 
@@ -203,6 +222,10 @@ def main(_):
   _generate_saved_model_for_half_plus_two(FLAGS.output_dir_pbtxt, as_text=True)
   print("SavedModel generated at: %s" % FLAGS.output_dir_pbtxt)
 
+  _generate_saved_model_for_half_plus_two(
+      FLAGS.output_dir_main_op, use_main_op=True)
+  print("SavedModel generated at: %s" % FLAGS.output_dir_main_op)
+
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
@@ -210,11 +233,16 @@ if __name__ == "__main__":
       "--output_dir",
       type=str,
       default="/tmp/saved_model_half_plus_two",
-      help="Directory where to ouput SavedModel.")
+      help="Directory where to output SavedModel.")
   parser.add_argument(
       "--output_dir_pbtxt",
       type=str,
       default="/tmp/saved_model_half_plus_two_pbtxt",
-      help="Directory where to ouput the text format of SavedModel.")
+      help="Directory where to output the text format of SavedModel.")
+  parser.add_argument(
+      "--output_dir_main_op",
+      type=str,
+      default="/tmp/saved_model_half_plus_two_main_op",
+      help="Directory where to output the SavedModel with a main op.")
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)

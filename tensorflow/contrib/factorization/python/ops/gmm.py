@@ -103,6 +103,11 @@ class GMM(estimator.Estimator):
                             steps=steps)
     return np.sum(results[GMM.SCORES])
 
+  def weights(self):
+    """Returns the cluster weights."""
+    return checkpoint_utils.load_variable(
+        self.model_dir, gmm_ops.GmmAlgorithm.CLUSTERS_WEIGHT)
+
   def clusters(self):
     """Returns cluster centers."""
     clusters = checkpoint_utils.load_variable(
